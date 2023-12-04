@@ -3,6 +3,11 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Http\Requests\TaskRequest;
+use App\Http\Requests\AttachTaskRequest;
+use App\Http\Resources\TaskCollection;
+use App\Http\Resources\TaskResource;
+
 use App\Models\Task;
 use App\Models\User;
 
@@ -13,26 +18,18 @@ class TaskController extends Controller
      */
     public function index()
     {
-        return Task::all();
+        return new TaskCollection(Task::all());
     }
 
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+    public function store(TaskRequest $request)
     {
-        $logged_user = auth()->user();
-
-        $request->validate([
-            'name' => 'required',
-            'status' => 'required',
+        return Task::create([
+            'name' => $request->name,
+            'status' => $request->status,
         ]);
-
-        if($logged_user->role->name === 'Admin') {
-            return Task::create($request->all());
-        } else {
-            return response()->json(['message' => 'Only Admin can detach tasks'], 404);
-        }
     }
 
     /**
@@ -40,29 +37,18 @@ class TaskController extends Controller
      */
     public function show(string $id)
     {
-        $logged_user = auth()->user();
-
-        if($logged_user->role->name === 'Admin') {
-            return Task::find($id);
-        } else {
-            return response()->json(['message' => 'Only Admin can fetch tasks'], 404);
-        }
+        return TaskResource::make(Task::find($id));
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(TaskRequest $request, string $id)
     {
-        $logged_user = auth()->user();
         $task = Task::findOrFail($id);
-        
-        if($logged_user->role->name === 'Admin') {
-            $task->update($request->all());
-            return $task;
-        } else {
-            return response()->json(['message' => 'Only Admin can Update tasks'], 404);
-        }
+
+        $task->update($request->all());
+        return $task;
     }
 
     /**
@@ -70,14 +56,8 @@ class TaskController extends Controller
      */
     public function destroy(string $id)
     {
-        $logged_user = auth()->user();
-        
-        if($logged_user->role->name === 'Admin') {
-            $task = Task::findOrFail($id)->delete();
-            return response()->json(['message' => 'Resource deleted successfully'], 200);
-        } else {
-            return response()->json(['message' => 'Only Admin can Delete tasks'], 404);
-        }
+        $task = Task::findOrFail($id)->delete();
+        return response()->json(['message' => 'Resource deleted successfully'], 200);
     }
 
     /**
@@ -91,24 +71,18 @@ class TaskController extends Controller
     /**
      * Attach task to User.
      */
-    public function attachTaskToUser(Request $request)
+    public function attachTaskToUser(AttachTaskRequest $request)
     {
-        $logged_user = auth()->user();
+        $users = User::whereIn('id', $request->user_id)->get();
+        $tasks = Task::whereIn('id', $request->task_id)->get();
 
-        $fields = $request->validate([
-            'user_id' => 'required|exists:users,id',
-            'task_id' => 'required|exists:tasks,id',
-        ]);
-
-        $user = User::findOrFail($fields['user_id']);
-        $task = Task::findOrFail($fields['task_id']);
-        
-        if ($logged_user->role->name === 'Admin') {
-            $task->users()->sync($user->id, false);
-            return response()->json(['message' => 'Task Assigned successfully'], 200);
-        } else {
-            return response()->json(['message' => 'Only Admin can attach tasks'], 403);
+        foreach ($tasks as $task) {
+            foreach ($users as $user) {
+                $task->users()->sync($user->id, false);
+            }
+            $task->update(['status' => 'Assigned']);
         }
+        return response()->json(['message' => 'Task Assigned successfully'], 200);
     }
 
     /**
@@ -116,15 +90,10 @@ class TaskController extends Controller
      */
     public function detachTask($task_id)
     {
-        $logged_user = auth()->user();
-
         $task = Task::findOrFail($task_id);
         
-        if($logged_user->role->name === 'Admin') {
-            $task->users()->detach();
-            return response()->json(['message' => 'Task Detached successfully'], 200);
-        } else {
-            return response()->json(['message' => 'Only Admin can detach tasks'], 404);
-        }
+        $task->users()->detach();
+        $task->update(['status' => 'Pending']);
+        return response()->json(['message' => 'Task Detached successfully'], 200);
     }
 }

@@ -5,9 +5,14 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use App\Http\Requests\UserRequest;
+use App\Http\Requests\UserLoginRequest;
+use App\Http\Requests\UserPasswordRequest;
+use App\Http\Resources\UserResource;
 use Illuminate\Support\Facades\Hash;
 
 use App\Models\User;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
 
 class AuthController extends Controller
 {
@@ -34,23 +39,27 @@ class AuthController extends Controller
         return response($response, 201);
     }
 
-    public function login(Request $request)
+    public function login(UserLoginRequest $request)
     {
-        $fields = $request->validate([
-            'email' => 'required|string',
-            'password' => 'required|string',
-        ]);
-
         // Check Email
-        $user = User::where('email', $fields['email'])->first();
+        $user = User::where('email', $request->email)->first();
 
         // Check Password
-        if(!$user || !Hash::check($fields['password'], $user->password)) {
+        if(!$user || !Hash::check($request->password, $user->password)) {
             return response([
                 'message' => "Invalid Credentials"
             ], 401);
         }
-
+        // $guard = Auth::guard(Arr::first(config('sanctum.guard')));
+        // if(!$guard->attempt([
+        //     'email' => $request->email,
+        //     'password' => $request->password,
+        // ])) {
+        //     throw new \Error('Invalid Credentials');
+            
+        // }
+        
+        // $user = $guard->user();
         $token = $user->createToken('token')->plainTextToken;
 
         $response = [
@@ -61,7 +70,7 @@ class AuthController extends Controller
         return response($response, 200);
     }
 
-    public function logout(Request $request)
+    public function logout()
     {
         auth()->user()->tokens()->delete();
         return [
@@ -69,23 +78,31 @@ class AuthController extends Controller
         ];
     }
 
-    public function user_info()
+    public function userInfo()
     {
-        $loggedUser = auth()->user();
-        $loggedUser->load('role');
-        return response([
-            'user' => $loggedUser,
-            'message' => "Logged user data"
-        ], 200);
+        // $loggedUser = auth()->user();
+        // $loggedUser->load('role');
+        // return response([
+            //     'user' => $loggedUser,
+            //     'message' => "Logged user data"
+            // ], 200);
+        
+        $user = User::whereId(auth()->user()->id)->with('role')->first();
+        return UserResource::make($user);
     }
 
-    public function changePassword(Request $request)
+    public function changePassword(UserPasswordRequest $request)
     {
-        $password = $request->validate([
-            'password' => 'required|string|confirmed',
-        ]);
         $user = auth()->user();
-        $user->password = Hash::make($password['password']);
+
+         // Check if the provided current password matches the user's actual current password
+        if (!Hash::check($request->current_password, $user->password)) {
+            return response([
+                'message' => "Current password is incorrect"
+            ], 401);
+        }
+
+        $user->password = Hash::make($request->password);
         $user->save();
         return response([
             'message' => "Password changed successfully"
